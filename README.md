@@ -2,7 +2,7 @@
 
 Rotore az/el satellitare portatile per antenna Yagi, pilotabile **dal solo cellulare** via un'app web — nessun dispositivo aggiuntivo richiesto (niente Cardputer, niente PC sul campo). Pensato per attività radioamatoriali in portatile (POTA, SOTA, QRP all'aperto) con satelliti radioamatoriali.
 
-Autore: **IU1OLR**
+Autore: **IU1OLR** — canale YouTube: [youtube.com/@iu1olr](https://www.youtube.com/@iu1olr)
 
 ## Cos'è
 
