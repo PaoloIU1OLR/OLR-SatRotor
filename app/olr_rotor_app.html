@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>OLR Rotore Satellitare</title>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5/dist/satellite.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#17222c; --panel2:#1d2a36; --text:#e6edf3; --muted:#8aa0b2;
+    --accent:#3fa7ff; --ok:#3ecf8e; --warn:#f0a93e; --err:#ff5c5c; --border:#263544;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px; line-height:1.4;
+  }
+  header{padding:16px; background:var(--panel2); border-bottom:1px solid var(--border);}
+  header h1{margin:0; font-size:1.2em;}
+  header p{margin:4px 0 0; color:var(--muted); font-size:0.85em;}
+  main{padding:12px; max-width:720px; margin:0 auto;}
+  section{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:14px; margin-bottom:14px;
+  }
+  section h2{margin:0 0 10px; font-size:1em; color:var(--accent);}
+  label{display:block; margin:10px 0 4px; font-size:0.9em; color:var(--muted);}
+  input[type=text], input[type=number], select{
+    width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); font-size:1em;
+  }
+  input[type=checkbox]{width:auto; transform:scale(1.3); margin-right:8px; vertical-align:middle;}
+  .row{display:flex; gap:10px;}
+  .row > div{flex:1;}
+  button{
+    display:inline-block; padding:12px 16px; margin:6px 4px 0 0; border:none; border-radius:8px;
+    background:var(--accent); color:#06141f; font-weight:600; font-size:0.95em; cursor:pointer;
+  }
+  button.secondary{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  button.ok{background:var(--ok); color:#06241a;}
+  button.warn{background:var(--warn); color:#271a00;}
+  button:disabled{opacity:0.4; cursor:not-allowed;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.78em; font-weight:600;}
+  .pill.ok{background:rgba(62,207,142,0.15); color:var(--ok);}
+  .pill.warn{background:rgba(240,169,62,0.15); color:var(--warn);}
+  .pill.err{background:rgba(255,92,92,0.15); color:var(--err);}
+  .muted{color:var(--muted); font-size:0.85em;}
+  table{width:100%; border-collapse:collapse; font-size:0.82em; margin-top:8px;}
+  th,td{padding:4px 6px; text-align:right; border-bottom:1px solid var(--border);}
+  th:first-child, td:first-child{text-align:left;}
+  #log{
+    background:#0a1118; border:1px solid var(--border); border-radius:8px; padding:8px;
+    max-height:160px; overflow-y:auto; font-family:monospace; font-size:0.78em; white-space:pre-wrap;
+  }
+  .log-err{color:var(--err);} .log-ok{color:var(--ok);} .log-warn{color:var(--warn);}
+  details summary{cursor:pointer; color:var(--muted); font-size:0.85em; margin-top:6px;}
+  .trackbox{max-height:220px; overflow-y:auto;}
+</style>
+</head>
+<body>
+<header>
+  <h1>OLR &middot; Rotore Satellitare</h1>
+  <p>Calcolo passaggi e invio al rotore &middot; <span id="libStatus" class="pill warn">libreria orbitale: caricamento...</span></p>
+</header>
+
+<main>
+
+  <section id="sec-tle">
+    <h2>1. TLE</h2>
+    <div class="row">
+      <div><button id="btnFetchTle">Scarica da Celestrak</button></div>
+      <div><button class="secondary" id="btnPickFile">Carica file locale</button>
+        <input type="file" id="fileTle" accept=".txt" style="position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; pointer-events:none;"></div>
+    </div>
+    <p class="muted" id="tleStatus">Nessun TLE caricato.</p>
+    <label for="selSat">Satellite</label>
+    <select id="selSat"><option value="">-- carica un TLE --</option></select>
+    <div id="satInfo" class="muted" style="margin-top:8px; display:none">
+      NORAD <span id="infoNorad">-</span> &middot; Inclinazione <span id="infoIncl">-</span>&deg; &middot; Periodo orbitale <span id="infoPeriod">-</span> min
+    </div>
+  </section>
+
+  <section id="sec-obs">
+    <h2>2. Posizione osservatore</h2>
+    <label for="inLocator">Locatore (es. JN45so)</label>
+    <input type="text" id="inLocator" placeholder="6 caratteri" maxlength="6">
+    <details>
+      <summary>Inserisci lat/lon/quota manualmente invece</summary>
+      <div class="row">
+        <div><label for="inLat">Lat (&deg;)</label><input type="number" id="inLat" step="0.0001"></div>
+        <div><label for="inLon">Lon (&deg;)</label><input type="number" id="inLon" step="0.0001"></div>
+      </div>
+    </details>
+    <label for="inAlt">Quota (m)</label>
+    <input type="number" id="inAlt" value="0">
+    <p class="muted" id="obsStatus">Nessuna posizione impostata.</p>
+  </section>
+
+  <section id="sec-pass">
+    <h2>3. Passaggio</h2>
+    <div class="row">
+      <div><button id="btnCalcPass">Calcola prossimo passaggio</button></div>
+      <div><button class="warn" id="btnDemo">DEMO (test rotore)</button></div>
+    </div>
+    <div id="countdownBox" style="display:none; margin:10px 0; text-align:center;">
+      <div class="muted">Prossimo passaggio (<span id="cdSatName"></span>) tra</div>
+      <div id="countdownText" style="font-size:1.9em; font-weight:700; color:var(--accent);">--:--:--</div>
+    </div>
+    <p class="muted" id="passStatus">Nessun passaggio calcolato.</p>
+    <details id="trackDetails" style="display:none">
+      <summary>Mostra i punti del tracciato</summary>
+      <div class="trackbox">
+        <table id="trackTable">
+          <thead><tr><th>t (s)</th><th>Az&deg;</th><th>El&deg;</th><th>Servo Az</th><th>Servo El</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section id="sec-align" style="display:none">
+    <h2>4. Allineamento (come sul Cardputer)</h2>
+    <p>Centro arco di questo passaggio: <b id="alignCenterArc">-</b>&deg;</p>
+    <p class="muted">Porta il rotore al centro meccanico, poi ruota il <b>treppiede</b> (non i servi) finch&eacute; il boom non punta esattamente a questa direzione sulla bussola.</p>
+    <button class="secondary" id="btnGoCenter">1. Porta il rotore al centro (135&deg;/135&deg;)</button>
+    <div class="row" style="margin-top:10px">
+      <div><label><input type="checkbox" id="chkAligned"> Ho ruotato il treppiede e il boom punta a <span id="alignCenterArc2">-</span>&deg;</label></div>
+    </div>
+    <p class="muted" id="alignStatus">Calcola un passaggio per vedere il centro arco da allineare.</p>
+  </section>
+
+  <section id="sec-calib">
+    <h2>5. Calibrazione</h2>
+    <label><input type="checkbox" id="chkReverse"> Inverti senso azimut (azReverse)</label>
+    <div class="row">
+      <div><label for="inTrimAz">Trim Az (&deg;)</label><input type="number" id="inTrimAz" value="0"></div>
+      <div><label for="inTrimEl">Trim El (&deg;)</label><input type="number" id="inTrimEl" value="0"></div>
+    </div>
+    <button class="secondary" id="btnSaveCalib">Salva calibrazione</button>
+    <p class="muted" id="calibStatus"></p>
+  </section>
+
+  <section id="sec-send">
+    <h2>6. Invio al rotore</h2>
+    <label for="inRotorIp">IP / host rotore</label>
+    <input type="text" id="inRotorIp" value="192.168.4.1">
+    <button class="ok" id="btnSend" disabled>2. Invia passaggio al rotore</button>
+    <p class="muted" id="sendStatus">Calcola un passaggio, allineati al centro arco e conferma sopra prima di inviare.</p>
+  </section>
+
+  <section id="sec-log">
+    <h2>Registro</h2>
+    <div id="log"></div>
+  </section>
+
+</main>
+
+<script>
+"use strict";
+
+// ---------- stato ----------
+let tleList = [];           // [{name, l1, l2}]
+let currentTrack = null;    // {pts:[{t,az,el}], aos, los, centerArc, isDemo}
+let calib = {azReverse:true, trimAz:0, trimEl:0};  // default coerente col Cardputer (azimut invertito di serie)
+
+// ---------- utility log ----------
+function log(msg, cls){
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  if (cls) line.className = 'log-'+cls;
+  const t = new Date().toLocaleTimeString();
+  line.textContent = `[${t}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---------- libreria satellite.js ----------
+function checkLib(){
+  const pill = document.getElementById('libStatus');
+  if (window.satellite) {
+    pill.textContent = 'libreria orbitale: pronta';
+    pill.className = 'pill ok';
+    log('satellite.js caricata correttamente.', 'ok');
+  } else {
+    pill.textContent = 'libreria orbitale: NON disponibile (serve internet al primo avvio)';
+    pill.className = 'pill err';
+    log('satellite.js non caricata: senza internet il calcolo dei passaggi reali non funziona (il DEMO funziona comunque).', 'warn');
+  }
+}
+window.addEventListener('load', () => setTimeout(checkLib, 300));
+
+// ---------- localStorage ----------
+function loadPrefs(){
+  try{
+    const c = JSON.parse(localStorage.getItem('olr_calib') || 'null');
+    if (c) calib = c;
+  }catch(e){}
+  document.getElementById('chkReverse').checked = !!calib.azReverse;
+  document.getElementById('inTrimAz').value = calib.trimAz || 0;
+  document.getElementById('inTrimEl').value = calib.trimEl || 0;
+
+  const loc = localStorage.getItem('olr_locator');
+  if (loc) document.getElementById('inLocator').value = loc;
+  const ip = localStorage.getItem('olr_rotor_ip');
+  if (ip) document.getElementById('inRotorIp').value = ip;
+
+  try{
+    const cache = JSON.parse(localStorage.getItem('olr_tle_cache') || 'null');
+    if (cache && cache.list && cache.list.length){
+      tleList = cache.list;
+      populateSatSelect();
+      const age = Math.round((Date.now() - cache.ts)/60000);
+      document.getElementById('tleStatus').textContent =
+        `TLE in cache (${tleList.length} satelliti, scaricati ${age} min fa).`;
+    }
+  }catch(e){}
+}
+function saveCalib(){
+  calib.azReverse = document.getElementById('chkReverse').checked;
+  calib.trimAz = parseFloat(document.getElementById('inTrimAz').value) || 0;
+  calib.trimEl = parseFloat(document.getElementById('inTrimEl').value) || 0;
+  localStorage.setItem('olr_calib', JSON.stringify(calib));
+  document.getElementById('calibStatus').textContent = 'Calibrazione salvata.';
+  log('Calibrazione salvata: reverse=' + calib.azReverse + ' trimAz=' + calib.trimAz + ' trimEl=' + calib.trimEl, 'ok');
+}
+document.getElementById('btnSaveCalib').addEventListener('click', saveCalib);
+
+// ---------- locatore -> lat/lon ----------
+function locatorToLatLon(loc){
+  loc = loc.trim().toUpperCase();
+  if (loc.length < 4) return null;
+  const A = 'A'.charCodeAt(0), ZERO = '0'.charCodeAt(0);
+  let lon = (loc.charCodeAt(0)-A)*20 - 180;
+  let lat = (loc.charCodeAt(1)-A)*10 - 90;
+  lon += (loc.charCodeAt(2)-ZERO)*2;
+  lat += (loc.charCodeAt(3)-ZERO)*1;
+  if (loc.length >= 6) {
+    lon += (loc.charCodeAt(4)-A)*(2/24);
+    lat += (loc.charCodeAt(5)-A)*(1/24);
+    lon += (2/24)/2; lat += (1/24)/2;
+  } else {
+    lon += 1; lat += 0.5;
+  }
+  return {lat, lon};
+}
+function getObserver(){
+  const latManual = document.getElementById('inLat').value;
+  const lonManual = document.getElementById('inLon').value;
+  let lat, lon;
+  if (latManual !== '' && lonManual !== '') {
+    lat = parseFloat(latManual); lon = parseFloat(lonManual);
+  } else {
+    const loc = document.getElementById('inLocator').value;
+    const ll = locatorToLatLon(loc);
+    if (!ll) return null;
+    lat = ll.lat; lon = ll.lon;
+  }
+  const altM = parseFloat(document.getElementById('inAlt').value) || 0;
+  return {lat, lon, heightKm: altM/1000};
+}
+function updateObsStatus(){
+  const obs = getObserver();
+  const s = document.getElementById('obsStatus');
+  if (obs) {
+    s.textContent = `Lat ${obs.lat.toFixed(4)}  Lon ${obs.lon.toFixed(4)}  Quota ${(obs.heightKm*1000).toFixed(0)} m`;
+    localStorage.setItem('olr_locator', document.getElementById('inLocator').value);
+  } else {
+    s.textContent = 'Inserisci un locatore valido (6 caratteri) o lat/lon manuali.';
+  }
+}
+document.getElementById('inLocator').addEventListener('input', () => { updateObsStatus(); recalcPass(true); });
+document.getElementById('inLat').addEventListener('input', () => { updateObsStatus(); recalcPass(true); });
+document.getElementById('inLon').addEventListener('input', () => { updateObsStatus(); recalcPass(true); });
+document.getElementById('inAlt').addEventListener('input', () => { updateObsStatus(); recalcPass(true); });
+
+// ---------- TLE: parsing ----------
+function parseTripletsText(text){
+  const lines = text.split(/\r?\n/).map(l => l).filter(l => l.trim().length > 0);
+  const out = [];
+  let i = 0;
+  while (i + 2 < lines.length) {
+    const name = lines[i], l1 = lines[i+1], l2 = lines[i+2];
+    if (l1 && l2 && l1.startsWith('1 ') && l2.startsWith('2 ')) {
+      out.push({name: name.trim(), l1, l2});
+      i += 3;
+    } else {
+      i += 1;
+    }
+  }
+  return out;
+}
+function populateSatSelect(){
+  const sel = document.getElementById('selSat');
+  sel.innerHTML = '';
+  if (!tleList.length) {
+    sel.innerHTML = '<option value="">-- carica un TLE --</option>';
+    return;
+  }
+  tleList.forEach((s, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
+}
+function parseSatInfo(sat){
+  const norad = parseInt(sat.l1.substr(2,5), 10);
+  const incl = parseFloat(sat.l2.substr(8,8));
+  const revDay = parseFloat(sat.l2.substr(52,11));
+  const periodMin = revDay > 0 ? 1440 / revDay : null;
+  return {norad, incl, periodMin};
+}
+function showSatInfo(sat){
+  const info = parseSatInfo(sat);
+  document.getElementById('infoNorad').textContent = isNaN(info.norad) ? '-' : info.norad;
+  document.getElementById('infoIncl').textContent = isNaN(info.incl) ? '-' : info.incl.toFixed(1);
+  document.getElementById('infoPeriod').textContent = info.periodMin ? info.periodMin.toFixed(1) : '-';
+  document.getElementById('satInfo').style.display = 'block';
+}
+document.getElementById('selSat').addEventListener('change', (e) => {
+  const idx = e.target.value;
+  if (idx === '') { document.getElementById('satInfo').style.display = 'none'; return; }
+  showSatInfo(tleList[idx]);
+  recalcPass(true);
+});
+
+// ---- caricamento file locale ----
+document.getElementById('btnPickFile').addEventListener('click', () => {
+  document.getElementById('fileTle').click();
+});
+document.getElementById('fileTle').addEventListener('change', (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const parsed = parseTripletsText(reader.result);
+    if (!parsed.length) {
+      log('Il file non contiene TLE validi.', 'err');
+      document.getElementById('tleStatus').textContent = 'File non valido.';
+      return;
+    }
+    tleList = parsed;
+    populateSatSelect();
+    localStorage.setItem('olr_tle_cache', JSON.stringify({list: tleList, ts: Date.now()}));
+    document.getElementById('tleStatus').textContent =
+      `TLE caricati da file: ${tleList.length} satelliti (${file.name}).`;
+    log(`Caricati ${tleList.length} satelliti da file locale.`, 'ok');
+  };
+  reader.readAsText(file);
+});
+
+// ---- download da Celestrak ----
+const GROUP_URL = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle';
+const CATNR_URL = (norad) => `https://celestrak.org/NORAD/elements/gp.php?CATNR=${norad}&FORMAT=tle`;
+// stessa lista usata da tle_downloader.py / sats.txt del Cardputer
+const TARGET_SATS = [
+  ["SO-50",27607], ["AO-91",43017], ["AO-123",61781], ["ISS",25544],
+  ["PO-101",43678], ["CAS-3H",40908], ["RS95S",67291], ["RS-44",44909],
+  ["FO-29",24278], ["AO-7",7530], ["AO-73",39444], ["JO-97",43803], ["TO-108",44881],
+];
+async function fetchText(url){
+  const r = await fetch(url, {cache:'no-store'});
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.text();
+}
+document.getElementById('btnFetchTle').addEventListener('click', async () => {
+  const btn = document.getElementById('btnFetchTle');
+  btn.disabled = true;
+  document.getElementById('tleStatus').textContent = 'Scarico da Celestrak...';
+  log('Scarico gruppo amateur da Celestrak...');
+  try {
+    const bulkText = await fetchText(GROUP_URL);
+    const bulk = parseTripletsText(bulkText);
+    const byNorad = {};
+    bulk.forEach(s => { byNorad[parseInt(s.l1.substr(2,5),10)] = s; });
+
+    const found = [];
+    for (const [name, norad] of TARGET_SATS) {
+      if (byNorad[norad]) {
+        found.push({name, l1: byNorad[norad].l1, l2: byNorad[norad].l2});
+      } else {
+        log(`  ${name} (NORAD ${norad}) non nel gruppo bulk, provo singolarmente...`);
+        try {
+          const single = parseTripletsText(await fetchText(CATNR_URL(norad)));
+          if (single.length) found.push({name, l1: single[0].l1, l2: single[0].l2});
+        } catch(e) { log(`    errore CATNR ${norad}: ${e}`, 'err'); }
+      }
+    }
+    if (!found.length) throw new Error('nessun satellite trovato');
+    tleList = found;
+    populateSatSelect();
+    localStorage.setItem('olr_tle_cache', JSON.stringify({list: tleList, ts: Date.now()}));
+    document.getElementById('tleStatus').textContent =
+      `TLE scaricati: ${found.length}/${TARGET_SATS.length} satelliti.`;
+    log(`OK: ${found.length}/${TARGET_SATS.length} satelliti scaricati da Celestrak.`, 'ok');
+  } catch (e) {
+    log('Errore download TLE: ' + e, 'err');
+    document.getElementById('tleStatus').textContent = 'Errore download (serve internet). TLE precedenti, se presenti, restano validi.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- SGP4 / ricerca passaggio ----------
+function elevationAt(satrec, date, obsLatRad, obsLonRad, obsHeightKm){
+  const pv = satellite.propagate(satrec, date);
+  if (!pv || !pv.position) return -Math.PI/2;
+  const gmst = satellite.gstime(date);
+  const ecf = satellite.eciToEcf(pv.position, gmst);
+  const observerGd = {longitude: obsLonRad, latitude: obsLatRad, height: obsHeightKm};
+  const look = satellite.ecfToLookAngles(observerGd, ecf);
+  return look.elevation;
+}
+function lookAnglesAt(satrec, date, obsLatRad, obsLonRad, obsHeightKm){
+  const pv = satellite.propagate(satrec, date);
+  const gmst = satellite.gstime(date);
+  const ecf = satellite.eciToEcf(pv.position, gmst);
+  const observerGd = {longitude: obsLonRad, latitude: obsLatRad, height: obsHeightKm};
+  const look = satellite.ecfToLookAngles(observerGd, ecf);
+  return {az: look.azimuth * 180/Math.PI, el: look.elevation * 180/Math.PI};
+}
+function bisect(satrec, t1, t2, latRad, lonRad, hKm, thresholdRad, rising){
+  for (let i=0; i<24; i++){
+    const tm = new Date((t1.getTime()+t2.getTime())/2);
+    const el = elevationAt(satrec, tm, latRad, lonRad, hKm);
+    const above = el >= thresholdRad;
+    if (rising ? !above : above) t1 = tm; else t2 = tm;
+  }
+  return new Date((t1.getTime()+t2.getTime())/2);
+}
+function findNextPass(satrec, latRad, lonRad, hKm, minElevDeg, windowHours, stepSeconds){
+  const thresholdRad = minElevDeg * Math.PI/180;
+  const start = new Date();
+  const end = new Date(start.getTime() + windowHours*3600*1000);
+  let t = new Date(start);
+  let prevEl = null, prevT = null, aos = null;
+  while (t <= end) {
+    const el = elevationAt(satrec, t, latRad, lonRad, hKm);
+    if (prevEl !== null) {
+      if (!aos && prevEl < thresholdRad && el >= thresholdRad) {
+        aos = bisect(satrec, prevT, t, latRad, lonRad, hKm, thresholdRad, true);
+      }
+      if (aos && prevEl >= thresholdRad && el < thresholdRad) {
+        const los = bisect(satrec, prevT, t, latRad, lonRad, hKm, thresholdRad, false);
+        return {aos, los};
+      }
+    }
+    prevEl = el; prevT = new Date(t);
+    t = new Date(t.getTime() + stepSeconds*1000);
+  }
+  return null;
+}
+function sampleTrack(satrec, aos, los, latRad, lonRad, hKm, numPts){
+  const pts = [];
+  const totalMs = los.getTime() - aos.getTime();
+  for (let i=0; i<numPts; i++){
+    const t = new Date(aos.getTime() + totalMs * i/(numPts-1));
+    const la = lookAnglesAt(satrec, t, latRad, lonRad, hKm);
+    pts.push({t, az: la.az, el: la.el});
+  }
+  return pts;
+}
+function centerOfArc(azDegList){
+  const az = azDegList.slice().sort((a,b)=>a-b);
+  const n = az.length;
+  if (n === 0) return 0;
+  let maxGap = -1, gapIdx = 0;
+  for (let i=0; i<n; i++){
+    const a1 = az[i];
+    const a2 = (i+1<n) ? az[i+1] : az[0]+360;
+    const gap = a2 - a1;
+    if (gap > maxGap) { maxGap = gap; gapIdx = i; }
+  }
+  const startAngle = az[(gapIdx+1)%n];
+  const spanDeg = 360 - maxGap;
+  let center = startAngle + spanDeg/2;
+  center = ((center % 360) + 360) % 360;
+  return center;
+}
+function angDiff(a, b){
+  let d = a - b;
+  while (d > 180) d -= 360;
+  while (d < -180) d += 360;
+  return d;
+}
+function toServo(azCompass, el, centerArcAz){
+  let diff = angDiff(azCompass, centerArcAz);
+  if (calib.azReverse) diff = -diff;
+  diff = Math.max(-134, Math.min(134, diff));
+  const elC = Math.max(0, Math.min(90, el));
+  let azServo = 135 + diff + (calib.trimAz || 0);
+  let elServo = 135 + elC + (calib.trimEl || 0);
+  azServo = Math.max(0, Math.min(270, azServo));
+  elServo = Math.max(0, Math.min(270, elServo));
+  return {azServo, elServo};
+}
+
+function renderTrack(track){
+  const tbody = document.querySelector('#trackTable tbody');
+  tbody.innerHTML = '';
+  const t0 = track.pts[0].t.getTime();
+  track.pts.forEach(p => {
+    const sv = toServo(p.az, p.el, track.centerArc);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${Math.round((p.t.getTime()-t0)/1000)}</td><td>${p.az.toFixed(1)}</td><td>${p.el.toFixed(1)}</td><td>${sv.azServo.toFixed(1)}</td><td>${sv.elServo.toFixed(1)}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('trackDetails').style.display = 'block';
+}
+
+// ---- allineamento (centro arco, come sul Cardputer) ----
+function showAlignStep(track){
+  document.getElementById('sec-align').style.display = 'block';
+  document.getElementById('alignCenterArc').textContent = track.centerArc.toFixed(1);
+  document.getElementById('alignCenterArc2').textContent = track.centerArc.toFixed(1);
+  document.getElementById('chkAligned').checked = false;
+  document.getElementById('alignStatus').textContent = 'In attesa di allineamento e conferma.';
+  document.getElementById('btnSend').disabled = true;
+}
+document.getElementById('chkAligned').addEventListener('change', (e) => {
+  document.getElementById('btnSend').disabled = !e.target.checked || !currentTrack;
+  document.getElementById('alignStatus').textContent = e.target.checked
+    ? 'Allineamento confermato: puoi inviare il passaggio.'
+    : 'In attesa di allineamento e conferma.';
+});
+document.getElementById('btnGoCenter').addEventListener('click', async () => {
+  const ip = document.getElementById('inRotorIp').value.trim();
+  document.getElementById('alignStatus').textContent = 'Porto il rotore al centro...';
+  try {
+    const resp = await fetch(`http://${ip}/api/goto?az=135&el=135`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    document.getElementById('alignStatus').textContent =
+      'Rotore al centro (135°/135°). Ruota il treppiede finché il boom non punta alla direzione indicata, poi conferma qui sotto.';
+    log('Rotore portato al centro meccanico per l\'allineamento.', 'ok');
+  } catch (e) {
+    document.getElementById('alignStatus').textContent = 'Errore collegamento al rotore: ' + e;
+    log('Errore portando il rotore al centro: ' + e, 'err');
+  }
+});
+
+// ---- calcolo passaggio reale ----
+let countdownTimer = null;
+
+function fmtDuration(ms){
+  if (ms < 0) ms = 0;
+  const s = Math.floor(ms/1000);
+  const hh = Math.floor(s/3600);
+  const mm = Math.floor((s%3600)/60);
+  const ss = s%60;
+  return (hh>0 ? hh+':' : '') + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
+}
+function updateCountdown(){
+  if (!currentTrack) { document.getElementById('countdownBox').style.display = 'none'; return; }
+  const box = document.getElementById('countdownBox');
+  const txt = document.getElementById('countdownText');
+  document.getElementById('cdSatName').textContent = currentTrack.satName;
+  const now = Date.now();
+  box.style.display = 'block';
+  if (now < currentTrack.aos.getTime()) {
+    txt.textContent = fmtDuration(currentTrack.aos.getTime() - now);
+    txt.style.color = 'var(--accent)';
+  } else if (now <= currentTrack.los.getTime()) {
+    txt.textContent = 'IN CORSO - termina in ' + fmtDuration(currentTrack.los.getTime() - now);
+    txt.style.color = 'var(--ok)';
+  } else {
+    txt.textContent = 'TERMINATO';
+    txt.style.color = 'var(--muted)';
+    clearInterval(countdownTimer);
+  }
+}
+function startCountdown(){
+  if (countdownTimer) clearInterval(countdownTimer);
+  updateCountdown();
+  countdownTimer = setInterval(updateCountdown, 1000);
+}
+
+function recalcPass(auto){
+  if (!window.satellite) { if (!auto) log('satellite.js non disponibile: impossibile calcolare (serve averla caricata con internet almeno una volta in questa sessione).', 'err'); return; }
+  const idx = document.getElementById('selSat').value;
+  if (idx === '') { if (!auto) log('Seleziona un satellite.', 'err'); return; }
+  const obs = getObserver();
+  if (!obs) { if (!auto) log('Posizione osservatore non valida.', 'err'); return; }
+  const sat = tleList[idx];
+  let satrec;
+  try { satrec = satellite.twoline2satrec(sat.l1, sat.l2); }
+  catch(e) { log('TLE non valido per ' + sat.name + ': ' + e, 'err'); return; }
+
+  const latRad = obs.lat * Math.PI/180;
+  const lonRad = obs.lon * Math.PI/180;
+  document.getElementById('passStatus').textContent = 'Calcolo in corso...';
+  if (!auto) log(`Cerco il prossimo passaggio di ${sat.name}...`);
+
+  const pass = findNextPass(satrec, latRad, lonRad, obs.heightKm, 10, 24, 20);
+  if (!pass) {
+    document.getElementById('passStatus').textContent = `Nessun passaggio di ${sat.name} sopra 10° nelle prossime 24h.`;
+    log(`Nessun passaggio di ${sat.name} trovato nelle prossime 24h.`, 'warn');
+    currentTrack = null;
+    document.getElementById('btnSend').disabled = true;
+    document.getElementById('sec-align').style.display = 'none';
+    document.getElementById('countdownBox').style.display = 'none';
+    if (countdownTimer) clearInterval(countdownTimer);
+    return;
+  }
+  const pts = sampleTrack(satrec, pass.aos, pass.los, latRad, lonRad, obs.heightKm, 48);
+  const centerArc = centerOfArc(pts.map(p => p.az));
+  const maxEl = Math.max(...pts.map(p => p.el));
+  currentTrack = {pts, aos: pass.aos, los: pass.los, centerArc, isDemo:false, satName: sat.name};
+
+  const durMin = ((pass.los - pass.aos)/60000).toFixed(1);
+  document.getElementById('passStatus').innerHTML =
+    `<b>${sat.name}</b><br>AOS: ${pass.aos.toLocaleString()}<br>LOS: ${pass.los.toLocaleString()}<br>` +
+    `Durata: ${durMin} min &middot; El. max: ${maxEl.toFixed(1)}&deg; &middot; Centro arco: ${centerArc.toFixed(1)}&deg;`;
+  renderTrack(currentTrack);
+  showAlignStep(currentTrack);
+  startCountdown();
+  log(`Passaggio trovato: AOS ${pass.aos.toLocaleTimeString()} - LOS ${pass.los.toLocaleTimeString()}, el.max ${maxEl.toFixed(1)}°.`, 'ok');
+}
+document.getElementById('btnCalcPass').addEventListener('click', () => recalcPass(false));
+
+// ---- DEMO ----
+document.getElementById('btnDemo').addEventListener('click', () => {
+  const now = Date.now();
+  const startDelayMs = 5000;
+  const durationMs = 180000; // 3 minuti
+  const numPts = 48;
+  const pts = [];
+  // arco realistico (120 gradi, come un passaggio vero), NON un giro completo 0-360:
+  // un giro intero non ci sta fisicamente nei 270 gradi del rotore, qualunque sia il
+  // centraggio, e resterebbe "incollato" al limite per una parte del test.
+  const azStart = 45, azEnd = 225; // 180 gradi di arco, come il DEMO del Cardputer
+  for (let i=0; i<numPts; i++){
+    const frac = i/(numPts-1);
+    const az = azStart + frac * (azEnd - azStart);
+    const el = 5 + 75 * (1 - Math.abs(2*frac - 1));
+    pts.push({t: new Date(now + startDelayMs + frac*durationMs), az, el});
+  }
+  const centerArc = centerOfArc(pts.map(p => p.az));
+  currentTrack = {
+    pts, aos: new Date(now+startDelayMs), los: new Date(now+startDelayMs+durationMs),
+    centerArc, isDemo:true, satName: 'DEMO'
+  };
+  document.getElementById('passStatus').innerHTML =
+    `<b>DEMO</b> &middot; passaggio fittizio per test rotore<br>Durata: 3 min, parte in 5s, arco az ${azStart}&deg;-${azEnd}&deg;, el. 5&deg;-80&deg;.`;
+  renderTrack(currentTrack);
+  showAlignStep(currentTrack);
+  startCountdown();
+  log('Passaggio DEMO generato (arco 180°, come il Cardputer, 3 minuti).', 'ok');
+});
+
+// ---- invio al rotore ----
+document.getElementById('inRotorIp').addEventListener('change', (e) => {
+  localStorage.setItem('olr_rotor_ip', e.target.value.trim());
+});
+document.getElementById('btnSend').addEventListener('click', async () => {
+  if (!currentTrack) { log('Nessun passaggio da inviare.', 'err'); return; }
+  const ip = document.getElementById('inRotorIp').value.trim();
+  const startDelayMs = Math.max(0, currentTrack.aos.getTime() - Date.now());
+  const durationMs = currentTrack.los.getTime() - currentTrack.aos.getTime();
+  const servoPts = currentTrack.pts.map(p => toServo(p.az, p.el, currentTrack.centerArc));
+  const header = `${Math.round(startDelayMs)},${Math.round(durationMs)},${servoPts.length}`;
+  const body = header + ';' + servoPts.map(p => `${p.azServo.toFixed(1)},${p.elServo.toFixed(1)}`).join(';');
+
+  document.getElementById('sendStatus').textContent = `Invio a http://${ip}/api/passload ...`;
+  log(`Invio passaggio (${currentTrack.satName}, ${servoPts.length} punti) a ${ip}...`);
+  try {
+    const resp = await fetch(`http://${ip}/api/passload`, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body
+    });
+    const text = await resp.text();
+    if (resp.ok) {
+      document.getElementById('sendStatus').textContent = `Rotore: ${text}`;
+      log('Rotore ha risposto OK: ' + text, 'ok');
+    } else {
+      document.getElementById('sendStatus').textContent = `Errore rotore (${resp.status}): ${text}`;
+      log(`Errore rotore (${resp.status}): ${text}`, 'err');
+    }
+  } catch (e) {
+    document.getElementById('sendStatus').textContent = 'Errore di connessione al rotore: ' + e;
+    log('Errore di connessione al rotore (sei collegato al suo WiFi?): ' + e, 'err');
+  }
+});
+
+// ---------- avvio ----------
+loadPrefs();
+updateObsStatus();
+log('App pronta.');
+</script>
+</body>
+</html>
